@@ -1,0 +1,180 @@
+cmake_minimum_required(VERSION 3.10)
+
+project(timg VERSION 1.6.3 LANGUAGES CXX)
+
+option(WITH_VIDEO_DECODING "Enables video decoding feature" ON)
+option(WITH_VIDEO_DEVICE "Enables reading videos from devices e.g. v4l2 (requires WITH_VIDEO_DECODING)" ON)
+
+# Options that should be typically on, but could be disabled for special
+# applications where less dependencies are required
+option(WITH_GRAPHICSMAGICK "Enable general image loading with Graphicsmagick. You typically want this." ON)
+option(WITH_TURBOJPEG "Optimized JPEG loading. You typically want this." ON)
+option(WITH_RSVG "Use librsvg to open SVG images." ON)
+option(WITH_POPPLER "Use poppler to render PDFs" ON)
+option(WITH_STB_IMAGE "Use STB image, a self-contained albeit limited image loading and lower quality. Use if WITH_GRAPHICSMAGICK is not possible and want to limit dependencies. Default on to be used as fallback." ON)
+option(WITH_QOI_IMAGE "QOI image format" ON)
+
+# Compile-time option for specialized
+option(WITH_OPENSLIDE_SUPPORT "Enables support to scientific OpenSlide formats" OFF)
+
+# Output formats
+option(WITH_LIBSIXEL "Provide sixel output which is supported by some older terminals such as xterm" ON)
+
+# Note: The version string can be ammended with -DDISTRIBUTION_VERSION, see src/timg-version.h.in
+option(TIMG_VERSION_FROM_GIT "Get the program version from the git repository" ON)
+
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
+
+# CMake's platform modules reset CMAKE_FIND_LIBRARY_SUFFIXES after the
+# toolchain file ran, so re-assert static-only lookups here; otherwise
+# pkg-config discovered libraries resolve to .so and break -static links.
+if(PKG_CONFIG_USE_STATIC_LIBS)
+  set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
+endif()
+
+include(FindPkgConfig)
+include(GNUInstallDirs)
+
+if(TIMG_VERSION_FROM_GIT)
+  find_package(Git REQUIRED)
+  include(GetGitRevisionDescription)
+endif()
+
+# Ubuntu 20.04 does not provide pkg-config, so use find_library() as fallback.
+# For static builds, prefer find_library() to avoid pkg-config picking a shared
+# object when both static and shared variants are installed.
+if(PKG_CONFIG_USE_STATIC_LIBS)
+  set(LIBDEFLATE_PKGCONFIG_FOUND OFF)
+else()
+  pkg_check_modules(LIBDEFLATE_PKGCONFIG IMPORTED_TARGET libdeflate)
+endif()
+
+if(NOT LIBDEFLATE_PKGCONFIG_FOUND)
+  if(PKG_CONFIG_USE_STATIC_LIBS)
+    find_library(LIBDEFLATE_LIBRARY NAMES libdeflate.a deflate.a)
+  else()
+    find_library(LIBDEFLATE_LIBRARY NAMES deflate)
+  endif()
+  message("Manual libdeflate lookup ${LIBDEFLATE_LIBRARY}")
+endif()
+
+if(WITH_LIBSIXEL)
+  pkg_check_modules(LIBSIXEL REQUIRED IMPORTED_TARGET libsixel)
+endif()
+
+if(WITH_TURBOJPEG)
+  if(PKG_CONFIG_USE_STATIC_LIBS)
+    set(TURBOJPEG_PKGCONFIG_FOUND OFF)
+    set(EXIF_PKGCONFIG_FOUND OFF)
+  else()
+    pkg_check_modules(TURBOJPEG REQUIRED IMPORTED_TARGET libturbojpeg)
+    pkg_check_modules(EXIF REQUIRED IMPORTED_TARGET libexif)
+  endif()
+
+  if(NOT TURBOJPEG_PKGCONFIG_FOUND)
+    if(PKG_CONFIG_USE_STATIC_LIBS)
+      find_library(TURBOJPEG_LIBRARY NAMES libturbojpeg.a turbojpeg.a)
+    else()
+      find_library(TURBOJPEG_LIBRARY NAMES turbojpeg)
+    endif()
+    if(NOT TURBOJPEG_LIBRARY)
+      message(FATAL_ERROR "Could not find libturbojpeg")
+    endif()
+    message("Manual libturbojpeg lookup ${TURBOJPEG_LIBRARY}")
+  endif()
+
+  if(NOT EXIF_PKGCONFIG_FOUND)
+    if(PKG_CONFIG_USE_STATIC_LIBS)
+      find_library(EXIF_LIBRARY NAMES libexif.a exif.a)
+    else()
+      find_library(EXIF_LIBRARY NAMES exif)
+    endif()
+    if(NOT EXIF_LIBRARY)
+      message(FATAL_ERROR "Could not find libexif")
+    endif()
+    message("Manual libexif lookup ${EXIF_LIBRARY}")
+  endif()
+endif()
+
+if(WITH_GRAPHICSMAGICK)
+  pkg_check_modules(GRAPHICSMAGICKXX IMPORTED_TARGET REQUIRED GraphicsMagick++)
+endif()
+
+if(WITH_RSVG)
+  pkg_check_modules(RSVG REQUIRED IMPORTED_TARGET librsvg-2.0)
+  pkg_check_modules(CAIRO REQUIRED IMPORTED_TARGET cairo)
+endif()
+
+if(WITH_POPPLER)
+  pkg_check_modules(POPPLER REQUIRED IMPORTED_TARGET poppler-glib)
+  pkg_check_modules(CAIRO REQUIRED IMPORTED_TARGET cairo)
+endif()
+
+if(WITH_OPENSLIDE_SUPPORT)
+  pkg_check_modules(OPENSLIDE IMPORTED_TARGET REQUIRED openslide)
+endif()
+
+if(WITH_VIDEO_DECODING)
+  if(PKG_CONFIG_USE_STATIC_LIBS)
+    set(LIBAV_PKGCONFIG_FOUND OFF)
+    set(AVUTIL_PKGCONFIG_FOUND OFF)
+    set(SWSCALE_PKGCONFIG_FOUND OFF)
+    set(SWRESAMPLE_PKGCONFIG_FOUND OFF)
+    set(LIBAV_DEVICE_PKGCONFIG_FOUND OFF)
+  else()
+    pkg_check_modules(LIBAV IMPORTED_TARGET REQUIRED libavcodec libavutil libavformat)
+    pkg_check_modules(AVUTIL REQUIRED IMPORTED_TARGET libavutil)
+    pkg_check_modules(SWSCALE IMPORTED_TARGET REQUIRED libswscale)
+    pkg_check_modules(SWRESAMPLE IMPORTED_TARGET REQUIRED libswresample)
+    if (WITH_VIDEO_DEVICE)
+      pkg_check_modules(LIBAV_DEVICE IMPORTED_TARGET REQUIRED libavdevice)
+    endif()
+  endif()
+
+  if(NOT LIBAV_PKGCONFIG_FOUND)
+    if(PKG_CONFIG_USE_STATIC_LIBS)
+      find_library(LIBAVCODEC_LIBRARY NAMES libavcodec.a avcodec.a)
+      find_library(LIBAVUTIL_LIBRARY NAMES libavutil.a avutil.a)
+      find_library(LIBAVFORMAT_LIBRARY NAMES libavformat.a avformat.a)
+      find_library(SWSCALE_LIBRARY NAMES libswscale.a swscale.a)
+      find_library(SWRESAMPLE_LIBRARY NAMES libswresample.a swresample.a)
+      if (WITH_VIDEO_DEVICE)
+        find_library(LIBAVDEVICE_LIBRARY NAMES libavdevice.a avdevice.a)
+      endif()
+    else()
+      find_library(LIBAVCODEC_LIBRARY NAMES avcodec)
+      find_library(LIBAVUTIL_LIBRARY NAMES avutil)
+      find_library(LIBAVFORMAT_LIBRARY NAMES avformat)
+      find_library(SWSCALE_LIBRARY NAMES swscale)
+      find_library(SWRESAMPLE_LIBRARY NAMES swresample)
+      if (WITH_VIDEO_DEVICE)
+        find_library(LIBAVDEVICE_LIBRARY NAMES avdevice)
+      endif()
+    endif()
+    if(NOT LIBAVCODEC_LIBRARY OR NOT LIBAVUTIL_LIBRARY OR NOT LIBAVFORMAT_LIBRARY OR NOT SWSCALE_LIBRARY OR NOT SWRESAMPLE_LIBRARY)
+      message(FATAL_ERROR "Could not find required FFmpeg libraries for video decoding")
+    endif()
+    find_path(LIBAV_INCLUDE_DIR NAMES libavcodec/avcodec.h)
+    if(NOT LIBAV_INCLUDE_DIR)
+      message(FATAL_ERROR "Could not find FFmpeg headers (libavcodec/avcodec.h)")
+    endif()
+    if(WITH_VIDEO_DEVICE AND NOT LIBAVDEVICE_LIBRARY)
+      message(FATAL_ERROR "Could not find libavdevice")
+    endif()
+    message("Manual FFmpeg include lookup ${LIBAV_INCLUDE_DIR}")
+    message("Manual libavcodec lookup ${LIBAVCODEC_LIBRARY}")
+    message("Manual libavutil lookup ${LIBAVUTIL_LIBRARY}")
+    message("Manual libavformat lookup ${LIBAVFORMAT_LIBRARY}")
+    message("Manual libswscale lookup ${SWSCALE_LIBRARY}")
+    message("Manual libswresample lookup ${SWRESAMPLE_LIBRARY}")
+    if(WITH_VIDEO_DEVICE)
+      message("Manual libavdevice lookup ${LIBAVDEVICE_LIBRARY}")
+    endif()
+  endif()
+endif()
+
+find_package(Threads)
+
+add_subdirectory(src)
+add_subdirectory(man)
