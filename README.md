@@ -1,3 +1,5 @@
+-- Author: xcatzix  
+-- mailto: 3949745980@qq.com  
 -- Using it in paying money...  
 -- Desc: A image view and video player in terminal  
 # Installation:
